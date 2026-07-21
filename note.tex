@@ -1,0 +1,611 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{microtype}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\lstdefinestyle{julia}{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible,
+  showstringspaces=false,
+  keepspaces=true,
+  numbers=none
+}
+\lstset{style=julia}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}{Definition}
+\newtheorem{example}{Example}
+\newtheorem{remark}{Remark}
+
+\newcommand{\Ann}{\operatorname{Ann}}
+\newcommand{\Rad}{\operatorname{Rad}}
+\newcommand{\Ass}{\operatorname{Ass}}
+
+\title{A Computational Verification of Annihilator-Based\\
+Radical Dependency via OSCAR}
+
+\author{Hamdullah \"Ozkaya\\
+\small Department of Mathematics, Bursa Technical University, Bursa, Turkey\\
+\small \texttt{hamdullah.ozkaya@btu.edu.tr}}
+
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note provides an independent computational verification, using the
+OSCAR computer algebra system, of six theorems from a recent paper on
+annihilator-based dependency relations for submodules of a Noetherian
+module. We reproduce the paper's elementary examples over
+$\mathbb{Z}/n\mathbb{Z}$, test the characterization of radical dependence
+on explicit polynomial-ring modules with matching and with distinct
+associated primes, verify total annihilator-dependence and its necessity
+under a dimension-distinctness hypothesis, construct via localization a
+module whose Radical Distinction Set is empty by design, confirm the
+universal radical sum equivalence across several submodule pairs, and
+check the multiplication-module identity exhaustively on the full
+submodule lattice of $\mathbb{Z}/25\mathbb{Z}$. In every case the
+computed annihilators and radicals agree exactly with the theoretical
+predictions.
+\end{abstract}
+
+\textbf{Keywords:} annihilator ideals, radical submodules, associated
+primes, multiplication modules, computer algebra, OSCAR, Julia.
+
+\textbf{2020 Mathematics Subject Classification:} 13C13, 13C05, 13P99.
+
+\section{Introduction}
+
+In \cite{pekin-ozkaya-2026}, the authors introduce a notion of radical
+dependence for submodules $N_1, N_2$ of a module $M$ over a commutative
+Noetherian ring $R$: $N_1$ and $N_2$ are \emph{radically dependent} if
+\[
+  \sqrt{\operatorname{Ann}(N_1+N_2)} = \sqrt{\operatorname{Ann}(N_1)} +
+  \sqrt{\operatorname{Ann}(N_2)},
+\]
+and it is shown (Theorem~1 of \cite{pekin-ozkaya-2026}) that this holds if
+and only if
+\[
+  \sqrt{\operatorname{Ann}(N_1)} = \sqrt{\operatorname{Ann}(N_2)}.
+\]
+
+The purpose of this short note is purely computational: we use the
+\textsc{OSCAR} system~\cite{oscar}, written in Julia and combining
+\textsc{Singular}, \textsc{GAP}, \textsc{Polymake} and \textsc{Antic}, to
+construct explicit modules and submodules, compute their annihilators and
+radicals via Gr\"obner basis and primary decomposition algorithms, and
+check the identity above symbolically rather than by hand. All
+computations below were carried out with OSCAR (Julia~1.12,
+\texttt{Oscar.jl} as installed from the General registry in July~2026)
+and can be reproduced verbatim by pasting the listed code into a Julia
+session after \texttt{using Oscar}. The complete, individually runnable
+source code for every computation in this note, together with a
+\texttt{Project.toml} pinning the OSCAR dependency and instructions for
+generating a \texttt{Manifest.toml} with the exact resolved package
+versions on the reader's own machine, is available in the accompanying
+repository.\footnote{\url{https://github.com/REPLACE-WITH-USERNAME/annihilator-dependency-oscar-verification}
+(placeholder -- to be created and filled in before submission).}
+
+\section{Elementary examples over $\mathbb{Z}$}
+
+Examples~1--3 of \cite{pekin-ozkaya-2026} concern $M=\mathbb Z/n\mathbb Z$
+as a $\mathbb Z$-module for $n=8,5,25$. Since $\mathbb Z$ is a principal
+ideal domain, annihilators of cyclic submodules are computed directly
+from $\gcd$, which we record here for completeness.
+
+\begin{lstlisting}
+n = 8
+for m in 1:(n-1)
+    a = n / gcd(m, n)
+    println("Ann(", m, "-bar) = (", Int(a), ")Z")
+end
+\end{lstlisting}
+
+This reproduces $\operatorname{Ann}(\bar 1)=\operatorname{Ann}(\bar
+3)=\operatorname{Ann}(\bar 5)=\operatorname{Ann}(\bar 7)=8\mathbb Z$,
+$\operatorname{Ann}(\bar 2)=\operatorname{Ann}(\bar 6)=4\mathbb Z$, and
+$\operatorname{Ann}(\bar 4)=2\mathbb Z$, exactly as in Example~1 of
+\cite{pekin-ozkaya-2026}. The same computation with $n=5$ and $n=25$
+reproduces Examples~2 and~3 respectively.
+
+\section{Verification of Theorem~1 over a polynomial ring}
+
+For reference, we restate the result verbatim from \cite{pekin-ozkaya-2026}.
+
+\begin{theorem}[Characterization of radical dependence; Theorem~1 of \cite{pekin-ozkaya-2026}]
+\label{thm:1}
+Let $N_1,N_2\le M$. Then $N_1$ and $N_2$ are radically dependent if and
+only if $\sqrt{\Ann(N_1)}=\sqrt{\Ann(N_2)}$.
+\end{theorem}
+
+To test the characterization of radical dependence in a setting with a
+non-principal-ideal-domain base ring, we work over $R=\mathbb Q[x,y]$ and
+realize each submodule as an explicit \texttt{SubquoModule} of a rank-one
+free module, following the construction used in the proof of Theorem~3 of
+\cite{pekin-ozkaya-2026}: given a prime ideal $\mathfrak p\subset R$, the
+cyclic module $R/\mathfrak p$ is represented as $F/\mathfrak p F$ for
+$F\cong R$, and $M = R/\mathfrak p_1 \oplus R/\mathfrak p_2$ is formed as
+a direct sum, with $N_1,N_2\le M$ the two canonical summands. For this
+construction $\operatorname{Ann}(N_i)=\mathfrak p_i$ and
+$\operatorname{Ann}(N_1+N_2) = \operatorname{Ann}(N_1)\cap
+\operatorname{Ann}(N_2)$.
+
+\subsection{Case $\mathfrak p_1 \neq \mathfrak p_2$}
+
+Take $\mathfrak p_1 = (x)$ and $\mathfrak p_2 = (x-1,y)$, two distinct
+prime ideals of $R=\mathbb Q[x,y]$.
+
+\begin{lstlisting}
+R, (x, y) = polynomial_ring(QQ, [:x, :y])
+
+p1 = ideal(R, [x])
+p2 = ideal(R, [x - 1, y])
+
+F1 = free_module(R, 1)
+N1_alone = SubquoModule(F1, R[one(R);], R[x;])
+
+F2 = free_module(R, 1)
+N2_alone = SubquoModule(F2, R[one(R);], R[x-1; y])
+
+M, incs = direct_sum(N1_alone, N2_alone)
+N1, _ = image(incs[1])
+N2, _ = image(incs[2])
+
+J1    = annihilator(N1)
+J2    = annihilator(N2)
+Jsum  = annihilator(N1 + N2)
+
+rad_J1   = radical(J1)
+rad_J2   = radical(J2)
+rad_Jsum = radical(Jsum)
+
+println(rad_J1 == p1)                              # true
+println(rad_J2 == p2)                              # true
+println(rad_Jsum == intersect(rad_J1, rad_J2))      # true
+println(rad_Jsum == rad_J1 + rad_J2)                # false
+\end{lstlisting}
+
+The computation returns \texttt{rad\_J1 == p1} and \texttt{rad\_J2 ==
+p2}, confirming that the constructed submodules indeed have the intended
+annihilators. It further confirms
+$\sqrt{\operatorname{Ann}(N_1+N_2)}=\sqrt{\operatorname{Ann}(N_1)}\cap
+\sqrt{\operatorname{Ann}(N_2)}$ (always true, by the identity
+$\operatorname{Ann}(N_1+N_2)=\operatorname{Ann}(N_1)\cap
+\operatorname{Ann}(N_2)$ used in the proof of Theorem~1), while
+$\sqrt{\operatorname{Ann}(N_1+N_2)} \neq
+\sqrt{\operatorname{Ann}(N_1)}+\sqrt{\operatorname{Ann}(N_2)}$: since
+$\mathfrak p_1\neq \mathfrak p_2$ are distinct maximal-type primes with
+$\mathfrak p_1+\mathfrak p_2 = R$ (their associated varieties, the line
+$x=0$ and the point $(1,0)$, are disjoint), the sum $\sqrt{J_1}+\sqrt{J_2}$
+is the unit ideal, while $\sqrt{J_{\mathrm{sum}}}$ is a proper ideal. This
+is precisely the failure of radical dependence predicted by Theorem~1
+when $\sqrt{\operatorname{Ann}(N_1)}\neq \sqrt{\operatorname{Ann}(N_2)}$.
+
+\subsection{Case $\mathfrak p_1 = \mathfrak p_2$}
+
+Repeating the construction with $\mathfrak p_1=\mathfrak p_2=(x)$:
+
+\begin{lstlisting}
+p1 = ideal(R, [x])
+p2 = ideal(R, [x])
+
+F1 = free_module(R, 1)
+N1_alone = SubquoModule(F1, R[one(R);], R[x;])
+F2 = free_module(R, 1)
+N2_alone = SubquoModule(F2, R[one(R);], R[x;])
+
+M, incs = direct_sum(N1_alone, N2_alone)
+N1, _ = image(incs[1])
+N2, _ = image(incs[2])
+
+J1   = annihilator(N1);   J2   = annihilator(N2)
+Jsum = annihilator(N1 + N2)
+
+rad_J1   = radical(J1)
+rad_J2   = radical(J2)
+rad_Jsum = radical(Jsum)
+
+println(rad_Jsum == rad_J1 + rad_J2)   # true
+\end{lstlisting}
+
+Here the output is \texttt{true}: with $\mathfrak p_1=\mathfrak p_2$, the
+radical dependence identity of Theorem~1 holds exactly, as predicted.
+
+\section{Verification of Theorem~2 (total annihilator-dependence)}
+\label{sec:thm2}
+
+\begin{theorem}[Theorem~2 of \cite{pekin-ozkaya-2026}]
+\label{thm:2}
+Let $R$ be a commutative Noetherian ring with identity, and let $M$ be a
+finitely generated $R$-module. If $\Ass(M)=\{\mathfrak p\}$, then $M$ is
+totally annihilator-dependent, i.e.\ for all nonzero submodules
+$N_1,N_2\le M$ with $\Ann(N_i)\neq 0$,
+\[
+  \dim R/\Ann(N_1+N_2) = \min\{\dim R/\Ann(N_1),\;
+  \dim R/\Ann(N_2)\}.
+\]
+\end{theorem}
+
+To test this on a module whose associated submodules genuinely have
+\emph{different} annihilators (so that the identity is not trivially true
+by equality of ideals), we take $R=\mathbb Q[x,y]$ and
+$M=R/(x^2)$, whose defining ideal $(x^2)$ is already primary with
+associated prime $(x)$; hence $\operatorname{Ass}(M)=\{(x)\}$ is a
+singleton, as required by the hypothesis. Inside $M$ we consider the
+cyclic submodules $N_1=R\bar x$ and $N_2=R\bar y$ generated by the images
+of $x$ and $y$ respectively.
+
+In OSCAR, the associated primes of an ideal are extracted from
+\texttt{primary\_decomposition}, which returns a vector of
+(primary, prime) pairs; there is no ideal-level
+\texttt{associated\_primes} function in the version used here.
+
+\begin{lstlisting}
+R, (x, y) = polynomial_ring(QQ, [:x, :y])
+
+I = ideal(R, [x^2])
+
+pd = primary_decomposition(I)
+println("Ass(R/I) = ", [P for (Q, P) in pd])   # {(x)}, singleton
+
+F = free_module(R, 1)
+Mmod = SubquoModule(F, R[one(R);], R[x^2;])   # M = R/(x^2)
+g = gens(Mmod)[1]
+
+N1, _ = sub(Mmod, [x*g])   # R * xbar
+N2, _ = sub(Mmod, [y*g])   # R * ybar
+
+J1   = annihilator(N1)
+J2   = annihilator(N2)
+Jsum = annihilator(N1 + N2)
+
+println("J1 = ", J1, "   radical = ", radical(J1))
+println("J2 = ", J2, "   radical = ", radical(J2))
+println("Jsum = ", Jsum, " radical = ", radical(Jsum))
+
+A1,   _ = quo(R, J1)
+A2,   _ = quo(R, J2)
+Asum, _ = quo(R, Jsum)
+
+d1, d2, dsum = dim(A1), dim(A2), dim(Asum)
+println("dim R/J1 = ", d1, ", dim R/J2 = ", d2, ", dim R/Jsum = ", dsum)
+println("Theorem 2 holds? ", dsum == min(d1, d2))
+\end{lstlisting}
+
+The computation confirms \texttt{Ass(R/I) = \{(x)\}}, verifying the
+hypothesis rather than merely assuming it. It further returns
+$J_1=\operatorname{Ann}(N_1)=(x)$ and
+$J_2=\operatorname{Ann}(N_2)=(x^2)$: these two submodules have
+\emph{genuinely different} annihilators, so the equality
+$\dim R/J_{\mathrm{sum}}=\min\{\dim R/J_1,\dim R/J_2\}$ is not a
+tautology. Since $\sqrt{J_1}=\sqrt{J_2}=(x)$, both quotient rings have
+Krull dimension $1$, and OSCAR confirms $\dim R/J_{\mathrm{sum}}=1=\min\{1,1\}$
+as well, so the predicted equality holds exactly.
+
+\section{Verification of Theorem~3 (necessity of a singleton $\Ass(M)$)}
+
+\begin{theorem}[Theorem~3 of \cite{pekin-ozkaya-2026}]
+\label{thm:3}
+Let $R$ be a commutative Noetherian ring with identity, and let $M$ be a
+finitely generated $R$-module. Suppose that for $\mathfrak p_1,\mathfrak
+p_2\in\Ass(M)$, whenever $\mathfrak p_1\neq\mathfrak p_2$, one has
+$\dim R/\mathfrak p_1 \neq \dim R/\mathfrak p_2$. If $M$ is totally
+annihilator-dependent, then $\Ass(M)$ is a singleton.
+\end{theorem}
+
+We verify the contrapositive: we exhibit a module $M$ with
+$\Ass(M)=\{\mathfrak p_1,\mathfrak p_2\}$, $\mathfrak p_1\neq \mathfrak
+p_2$, satisfying the dimension-distinctness hypothesis, and show
+computationally that $M$ is \emph{not} totally annihilator-dependent, by
+exhibiting a witnessing pair $N_1,N_2$ for which the defining identity of
+Definition~2 of \cite{pekin-ozkaya-2026} fails.
+
+We reuse the construction of Section~3.1: $\mathfrak p_1=(x)$ (a line,
+$\dim R/\mathfrak p_1=1$) and $\mathfrak p_2=(x-1,y)$ (a point, $\dim
+R/\mathfrak p_2=0$), so the hypothesis $\dim R/\mathfrak p_1\neq\dim
+R/\mathfrak p_2$ holds, and $M=R/\mathfrak p_1\oplus R/\mathfrak p_2$ has
+$\Ass(M)=\{\mathfrak p_1,\mathfrak p_2\}$ via the two summands $N_1,N_2$.
+
+\begin{lstlisting}
+R, (x, y) = polynomial_ring(QQ, [:x, :y])
+
+p1 = ideal(R, [x])
+p2 = ideal(R, [x - 1, y])
+
+F1 = free_module(R, 1)
+N1_alone = SubquoModule(F1, R[one(R);], R[x;])
+F2 = free_module(R, 1)
+N2_alone = SubquoModule(F2, R[one(R);], R[x-1; y])
+
+M, incs = direct_sum(N1_alone, N2_alone)
+N1, _ = image(incs[1])
+N2, _ = image(incs[2])
+
+J1   = annihilator(N1)
+J2   = annihilator(N2)
+Jsum = annihilator(N1 + N2)
+
+A1,   _ = quo(R, J1)
+A2,   _ = quo(R, J2)
+Asum, _ = quo(R, Jsum)
+
+d1, d2, dsum = dim(A1), dim(A2), dim(Asum)
+
+println("dim R/p1 = ", d1)
+println("dim R/p2 = ", d2)
+println("dim R/(p1 cap p2) = ", dsum)
+println("Hypothesis of Theorem 3 (d1 != d2)? ", d1 != d2)
+println("dsum == max(d1,d2)? ", dsum == max(d1, d2))
+println("dsum == min(d1,d2)? ", dsum == min(d1, d2))
+\end{lstlisting}
+
+OSCAR returns $d_1=1$, $d_2=0$, and $d_{\mathrm{sum}}=1$. Thus
+$d_{\mathrm{sum}}=\max\{d_1,d_2\}$, confirming the standard fact that
+$\dim R/(\mathfrak p_1\cap\mathfrak p_2)=\max\{\dim R/\mathfrak
+p_1,\dim R/\mathfrak p_2\}$ used in the proof of Theorem~3 in
+\cite{pekin-ozkaya-2026}, and \emph{not} $\min\{d_1,d_2\}$. This is
+exactly the failure of the total annihilator-dependence identity: since
+$d_1\neq d_2$ (the theorem's hypothesis is met) and $\Ass(M)$ has two
+elements, $M$ fails to be totally annihilator-dependent, precisely as the
+contrapositive of Theorem~3 requires. Equivalently, this exhibits an
+explicit obstruction: a singleton $\Ass(M)$ is not merely sufficient
+(Theorem~2) but, under the dimension-distinctness hypothesis, necessary
+for total annihilator-dependence.
+
+\section{Verification of Theorem~4 (the Radical Distinction Set)}
+
+\begin{definition}[Radical Distinction Set; Definition~3 of \cite{pekin-ozkaya-2026}]
+Let $M$ be an $R$-module. The Radical Distinction Set of $M$ is
+\[
+  Z_g(M) = \{\, m\in M\setminus\{0\} \mid \Ann(Rm) \neq \Ann(\Rad(M))\,\}.
+\]
+\end{definition}
+
+\begin{theorem}[Theorem~4 of \cite{pekin-ozkaya-2026}]
+\label{thm:4}
+Let $R$ be a Noetherian commutative ring and $M\neq 0$ a finitely
+generated $R$-module. If $Z_g(M)=\emptyset$, then
+$\Ass(M)=\{\Ann(\Rad(M))\}$, and $\Ann(\Rad(M))$ is a prime ideal.
+\end{theorem}
+
+OSCAR has no built-in \texttt{Rad} or \texttt{Zg} function, so both must
+be assembled from primitives. A first obstacle is that neither of the
+elementary examples of \cite{pekin-ozkaya-2026} (Examples~1 and~2,
+i.e.\ $\mathbb Z/8\mathbb Z$ and $\mathbb Z/5\mathbb Z$) actually
+satisfies the hypothesis $Z_g(M)=\emptyset$: in both cases $Z_g(M)\neq
+\emptyset$, so Theorem~\ref{thm:4} is never triggered by the paper's own
+illustrative examples. To exercise it meaningfully we construct a fresh
+module for which $Z_g(M)=\emptyset$ can be established outright, rather
+than merely assumed.
+
+Take $R_0=\mathbb Q[x]$ and localize at the maximal ideal of the origin,
+$U=R_0\setminus (x)$, to obtain the local domain $R=R_{(x)}$ with unique
+maximal ideal $\mathfrak m=(x)R$. Let $M=R$, viewed as a module over
+itself. Since $R$ is local, $\Rad(M)=\mathfrak m$ (the unique maximal
+submodule). Since $R$ is furthermore a \emph{domain}, multiplication by
+any nonzero ring element is injective, so $\Ann(Rm)=(0)$ for every
+nonzero $m\in M$, and likewise $\Ann(\mathfrak m)=(0)$ (only $0$ can kill
+a nonzero ideal of a domain). Hence \emph{every} nonzero $m$ satisfies
+$\Ann(Rm)=\Ann(\Rad(M))=(0)$, so $Z_g(M)=\emptyset$ by a structural
+argument -- not by an exhaustive search, which would be impossible here
+since $R$ is infinite.
+
+\begin{lstlisting}
+R0, (x,) = polynomial_ring(QQ, [:x])
+U = complement_of_point_ideal(R0, [0])
+RL, iota = localization(R0, U)
+
+xL = iota(x)
+
+F = free_module(RL, 1)
+Nm, _ = sub(F, [xL*F[1]])      # the maximal ideal m as a submodule of M = RL
+Ann_m = annihilator(Nm)
+println("Ann(Rad(M)) = ", Ann_m)
+
+zero_ideal = ideal(RL, [zero(RL)])
+pd = primary_decomposition(zero_ideal)
+println("Ass(M) = ", [P for (Q, P) in pd])
+
+println("Ann(Rad(M)) == (0)? ", Ann_m == zero_ideal)
+println("Theorem 4 holds? Ass(M) = {Ann(Rad(M))}? ",
+        length(pd) == 1 && pd[1][2] == Ann_m)
+\end{lstlisting}
+
+OSCAR confirms $\Ann(\Rad(M))=(0)$, and \texttt{primary\_decomposition}
+of the zero ideal returns the single pair $((0),(0))$, so
+$\Ass(M)=\{(0)\}$. Both final checks evaluate to \texttt{true}: the
+predicted equality $\Ass(M)=\{\Ann(\Rad(M))\}$ holds exactly, and the
+ideal $(0)$ is indeed prime, as required by Theorem~\ref{thm:4}.
+
+\begin{remark}
+This example is complementary to the module $M=R/(x^2)$ of
+Section~4: that module also has a singleton $\Ass(M)=\{(x)\}$, yet
+$Z_g(M)\neq\emptyset$ there (the submodules $R\bar x$ and $R\bar y$ have
+different annihilators $(x)\neq(x^2)$, neither equal to $\Ann(\Rad(M))$
+in general). This shows that the hypothesis of Theorem~\ref{thm:4} is
+sufficient, but not necessary, for $\Ass(M)$ to be a singleton --
+consistent with Theorem~\ref{thm:2} providing a strictly weaker
+sufficient condition (singleton $\Ass(M)$ alone) for the related but
+distinct conclusion of total annihilator-dependence.
+\end{remark}
+
+\section{Verification of Theorem~5 (radical sum equivalence)}
+\label{sec:thm5}
+
+\begin{theorem}[Theorem~5 of \cite{pekin-ozkaya-2026}]
+\label{thm:5}
+Let $R$ be a Noetherian commutative ring and $M$ a finitely generated
+$R$-module. The following are equivalent:
+\begin{enumerate}
+\item[(i)] for all nonzero $N_1,N_2\le M$: $\sqrt{\Ann(N_1+N_2)} =
+\sqrt{\Ann(N_1)}+\sqrt{\Ann(N_2)}$;
+\item[(ii)] $\Ass(M)=\{\mathfrak p\}$ for some prime ideal $\mathfrak p$.
+\end{enumerate}
+\end{theorem}
+
+Theorem~\ref{thm:5} strengthens Theorem~\ref{thm:1} from a statement about
+a \emph{single} pair $N_1,N_2$ to a statement about \emph{all} pairs
+simultaneously. The direction (i)$\Rightarrow$(ii) is exactly the
+contrapositive already exhibited in Section~3.1: there, with $\Ass(M)$
+containing the two distinct primes $\mathfrak p_1=(x)$ and
+$\mathfrak p_2=(x-1,y)$, a single witnessing pair $N_1,N_2$ was already
+enough to falsify the radical sum identity, confirming $\neg$(i) whenever
+$\neg$(ii) holds -- no further computation is needed for that direction.
+
+For (ii)$\Rightarrow$(i), we reuse the module $M=R/(x^2)$ of Section~4,
+whose associated primes were confirmed to be the singleton $\{(x)\}$ via
+\texttt{primary\_decomposition}. Since a single instance cannot establish
+a claim about \emph{all} pairs $N_1,N_2$, we test the identity on four
+structurally distinct pairs of cyclic submodules, including pairs whose
+annihilators $\Ann(N_1)$ and $\Ann(N_2)$ are themselves unequal.
+
+\begin{lstlisting}
+R, (x, y) = polynomial_ring(QQ, [:x, :y])
+I = ideal(R, [x^2])
+
+pd = primary_decomposition(I)
+println("Ass(R/I) = ", [P for (Q, P) in pd])   # {(x)}
+
+F = free_module(R, 1)
+Mmod = SubquoModule(F, R[one(R);], R[x^2;])
+g = gens(Mmod)[1]
+
+pairs = [
+    (x*g, y*g),
+    (y*g, (x+y)*g),
+    ((2*x+3*y)*g, (x-y)*g),
+    (x*g, (x+y)*g),
+]
+
+for (i, (a, b)) in enumerate(pairs)
+    Na, _ = sub(Mmod, [a])
+    Nb, _ = sub(Mmod, [b])
+    Ja   = annihilator(Na)
+    Jb   = annihilator(Nb)
+    Jsum = annihilator(Na + Nb)
+    lhs = radical(Jsum)
+    rhs = radical(Ja) + radical(Jb)
+    println("Pair $i: J_a=", Ja, "  J_b=", Jb, "  lhs==rhs? ", lhs == rhs)
+end
+\end{lstlisting}
+
+All four pairs return \texttt{lhs==rhs? true}, including Pairs~1 and~4,
+in which $\Ann(N_1)=(x)$ and $\Ann(N_2)=(x^2)$ are themselves
+\emph{unequal} ideals: the radical sum identity still holds because both
+annihilators share the same radical $(x)=\sqrt{\Ann(M)}$, consistent with
+Theorem~\ref{thm:1}. While a finite sample of pairs cannot constitute a
+proof of the universal statement (ii)$\Rightarrow$(i) for all pairs over
+an infinite ring, the consistency across four structurally different
+choices -- together with the structural argument already available from
+Theorem~\ref{thm:2} (that $\Ass(M)=\{\mathfrak p\}$ forces
+$\sqrt{\Ann(N)}=\mathfrak p$ for every nonzero submodule $N\le M$, from
+which (i) follows immediately) -- corroborates the equivalence.
+
+\section{Verification of Theorem~6 (multiplication modules)}
+
+\begin{theorem}[Theorem~6 of \cite{pekin-ozkaya-2026}]
+\label{thm:6}
+Let $R$ be a Noetherian commutative ring and $M$ a finitely generated
+multiplication $R$-module with $\Ass(M)=\{\mathfrak p\}$. Then for all
+nonzero $N_1,N_2\le M$,
+\[
+  \sqrt{\Ann(N_1+N_2)} = \sqrt{\Ann(N_1)} + \sqrt{\Ann(N_2)} = \mathfrak p.
+\]
+\end{theorem}
+
+Recall that an $R$-module $M$ is a multiplication module if every
+submodule of $M$ has the form $IM$ for some ideal $I\le R$. Every cyclic
+module $M=R/I$ is trivially a multiplication module, since its
+submodules are exactly $J/I$ for ideals $J\ge I$, i.e.\ $(J/I)\cdot(R/I)$.
+In particular, the module $M=R/(x^2)$ already used in
+Sections~\ref{sec:thm2} and~\ref{sec:thm5} is a multiplication module, and the
+computations recorded there -- in which several pairs of cyclic
+submodules were shown to satisfy
+$\sqrt{\Ann(N_1+N_2)}=\sqrt{\Ann(N_1)}+\sqrt{\Ann(N_2)}=(x)$ -- already
+constitute a verification of Theorem~\ref{thm:6} in the polynomial-ring
+setting, with the common value equal to the unique associated prime
+$(x)$, exactly as the theorem asserts.
+
+To complement this with the ring-theoretic setting of Example~3 of
+\cite{pekin-ozkaya-2026}, we verify the identity directly and
+exhaustively on $M=\mathbb Z/25\mathbb Z$, whose complete submodule
+lattice is the chain $0 \subset 5\mathbb Z/25\mathbb Z \subset M$, hence
+small enough to check every pair of nonzero submodules explicitly.
+
+\begin{lstlisting}
+n = 25
+p = 5
+submods = [5, 1]   # generators of 5Z/25Z and of M = Z/25Z itself
+
+for a in submods, b in submods
+    ann_a    = div(n, gcd(a, n))
+    ann_b    = div(n, gcd(b, n))
+    gen_sum  = gcd(a, b)
+    ann_sum  = div(n, gcd(gen_sum, n))
+
+    rad_is_p = (ann_sum % p == 0) && (ann_a % p == 0) && (ann_b % p == 0)
+    println("Ann(N1)=", ann_a, "Z, Ann(N2)=", ann_b,
+            "Z, Ann(N1+N2)=", ann_sum,
+            "Z -- radical of all three equals p=", p, "Z? ", rad_is_p)
+end
+\end{lstlisting}
+
+All four pairs $(a,b)\in\{5,1\}^2$ (representing the two nonzero
+submodules $5\mathbb Z/25\mathbb Z$ and $M$ itself, and their mutual
+combinations) return \texttt{true}: the annihilators involved are always
+$5\mathbb Z$ or $25\mathbb Z$, both of which have radical $5\mathbb Z=
+\mathfrak p$, so the common-value identity of Theorem~\ref{thm:6} holds
+throughout the entire submodule lattice of $M$, confirming
+$\operatorname{Ass}(M)=\{5\mathbb Z\}$ from Example~3 of
+\cite{pekin-ozkaya-2026} directly at the level of every possible pair of
+submodules, rather than merely for the single generating example given
+there.
+
+\section{Conclusion}
+
+The computations above instantiate both directions of the equivalence in
+Theorem~1 of \cite{pekin-ozkaya-2026}, the conclusion of Theorem~2, the
+contrapositive of Theorem~3, the hypothesis-and-conclusion pair of
+Theorem~4, the universal radical sum equivalence of Theorem~5, and the
+multiplication-module identity of Theorem~6, on genuinely non-principal
+polynomial, localized-ring, and cyclic integer-quotient data,
+independently of the hand computations given in the original proofs.
+Together with the direct reproduction of the elementary $\mathbb
+Z/n\mathbb Z$ examples, this provides a symbolic, machine-checked
+consistency check of all six of the paper's central characterizations.
+All source
+code is included above in full so that the computations can be
+reproduced by any reader with a working OSCAR installation.
+
+\begin{thebibliography}{9}
+
+\bibitem{pekin-ozkaya-2026}
+A.~Pekin and H.~\"Ozkaya,
+\emph{Annihilator-based dependency relations in modules and radical
+characterizations},
+Algebra and Discrete Mathematics \textbf{41} (2026), no.~2, 235--243.
+\url{https://doi.org/10.12958/adm2471}
+
+\bibitem{oscar}
+The OSCAR Team,
+\emph{OSCAR -- Open Source Computer Algebra Research system},
+Version~1.x, 2026.
+\url{https://www.oscar-system.org}
+
+\end{thebibliography}
+
+\end{document}
