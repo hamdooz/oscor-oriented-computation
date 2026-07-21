@@ -89,16 +89,15 @@ The purpose of this short note is purely computational: we use the
 construct explicit modules and submodules, compute their annihilators and
 radicals via Gr\"obner basis and primary decomposition algorithms, and
 check the identity above symbolically rather than by hand. All
-computations below were carried out with OSCAR (Julia~1.12,
-\texttt{Oscar.jl} as installed from the General registry in July~2026)
-and can be reproduced verbatim by pasting the listed code into a Julia
-session after \texttt{using Oscar}. The complete, individually runnable
-source code for every computation in this note, together with a
-\texttt{Project.toml} pinning the OSCAR dependency and instructions for
-generating a \texttt{Manifest.toml} with the exact resolved package
-versions on the reader's own machine, is available in the accompanying
-repository.\footnote{\url{https://github.com/REPLACE-WITH-USERNAME/annihilator-dependency-oscar-verification}
-(placeholder -- to be created and filled in before submission).}
+computations below were carried out with Julia~1.12.6 and
+\texttt{Oscar.jl} version~1.8.0, as resolved from the General registry
+in July~2026, and can be reproduced verbatim by pasting the listed code
+into a Julia session after \texttt{using Oscar}. The exact dependency
+graph (including the bundled \textsc{Singular}, \textsc{GAP},
+\textsc{Polymake} and \textsc{Antic} components and their binary
+artifacts) is pinned in the \texttt{Manifest.toml} file of the
+accompanying repository, together with the complete, individually
+runnable source code for every computation in this note.\footnote{\url{https://github.com/hamdooz/oscor-oriented-computation}}
 
 \section{Elementary examples over $\mathbb{Z}$}
 
